@@ -4,9 +4,9 @@
 
 **A compact, keyboard-driven Roku remote for Windows — no browser, no Electron, just Python.**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-00ffe5?style=flat-square)](https://github.com/reaprrr/PyRokuMe/releases)
+[![Version](https://img.shields.io/badge/version-1.0.1-00ffe5?style=flat-square)](https://github.com/reaprrr/PyRokuMe/releases)
 [![Python](https://img.shields.io/badge/python-3.8%2B-6c2bd9?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-6868a0?style=flat-square&logo=windows)](https://github.com/reaprrr/PyRokuMe)
+[![Platform](https://img.shields.io/badge/platform-Windows-6868a0?style=flat-square&logo=windows)](https://github.com/reaprrr/PyRokuMe)
 [![License](https://img.shields.io/badge/license-MIT-39ff7f?style=flat-square)](LICENSE)
 
 <br/>
@@ -25,65 +25,58 @@ PyRokuMe is a single-file Python remote control for Roku devices. It auto-discov
 
 ## Features
 
-- **Auto-discovery** — finds Roku devices via SSDP multicast and a parallel IP range scan simultaneously; manual IP entry as fallback
+- **Auto-discovery** — finds Roku devices via SSDP multicast and a parallel IP range scan; manual IP entry as fallback
 - **Full remote layout** — Back, Home, Mute, Power, D-pad, OK, Vol±, Ch±, Rewind, Play/Pause, FF
-- **Keyboard shortcuts** — full keyboard mapping so you never have to click (controku-compatible, fully remappable)
+- **Keyboard shortcuts** — full keyboard mapping, fully remappable via ⚙ Settings → Edit Key Bindings
 - **App launcher** — browse and launch installed channels directly from the remote
-- **Send text** — type text and send it character-by-character to your Roku via ECP
-- **Wake on LAN** — send a magic packet to wake your Roku or TV from sleep
-- **Multi-device** — save and quick-switch between multiple Rokus from the device bar
+- **Input switcher** — quickly switch HDMI inputs from a popup
+- **Send text** — type and send text character-by-character to your Roku via ECP
+- **Wake on LAN** — send a magic packet to wake your Roku/TV from sleep; fires automatically on Power press if a MAC is saved
+- **Now playing** — live status bar showing what's currently playing
+- **System tray** — minimises to tray; right-click for quick actions
+- **Multi-device** — save and quick-switch between multiple Rokus
 - **6 colour themes** — Dark, Terminal, Ice, Sunset, Midnight, Light — switch live with no restart
 - **Opacity control** — slide the window transparency from 20% to 100%
-- **Always on top** — optional pin to keep the remote above other windows
+- **Always on Top** — optional setting to keep the remote above other windows
 - **Auto-reconnect** — silently re-establishes connection if the Roku goes to sleep and wakes
-- **Portable mode** — run from a folder named `PyRokuMe` and all config stays next to the script
+- **Portable or Standard** — choose on first launch: config next to the exe, or in `%APPDATA%`
 - **Resize from corner** — drag the bottom-right grip to resize; drag the title bar to move
 
 ---
 
 ## Requirements
 
-- Windows 10/11 or Linux
-- Python 3.8+
+- Windows 10/11
+- Python 3.8+ (not needed if using the compiled `.exe`)
 - `requests` (auto-installed on first launch if missing)
 
-All other dependencies (`tkinter`, `socket`, `threading`, `ctypes`, etc.) are part of the Python standard library.
-
-> **Note for Linux users:** `tkinter` is not always bundled with Python on Linux. Install it with `sudo apt install python3-tk` (Debian/Ubuntu) or the equivalent for your distro.
+All other dependencies (`tkinter`, `socket`, `threading`, `ctypes`) are part of the Python standard library.
 
 ---
 
 ## Installation
 
-### Quick start
+### Compiled EXE (recommended)
+
+Download `PyRokuMe.exe` from [Releases](https://github.com/reaprrr/PyRokuMe/releases) and run it. No Python required.
+
+On first launch you'll be asked whether to run in **Portable** mode (config saved next to the exe) or **Standard** mode (config saved to `%APPDATA%\PyRokuMe\PyRokuMe.json`).
+
+### From source
 
 ```bash
 git clone https://github.com/reaprrr/PyRokuMe.git
 cd PyRokuMe
+pip install requests
 python PyRokuMe.pyw
 ```
 
-On first launch, PyRokuMe will check for `requests` and offer to install it automatically.
-
-### Manual dependency install
+### Build EXE yourself
 
 ```bash
-pip install requests
+pip install pyinstaller
+pyinstaller --onefile --windowed --icon=app.ico --name PyRokuMe PyRokuMe.pyw
 ```
-
-### Portable mode
-
-Place `PyRokuMe.pyw` inside a folder named exactly `PyRokuMe` and run it from there. Config and settings will be saved alongside the script instead of in `%APPDATA%`, making the whole thing USB-stick portable.
-
-```
-PyRokuMe/
-├── PyRokuMe.pyw   ← script detects the folder name and goes portable
-└── config.json    ← auto-created on first run
-```
-
-### Standard mode
-
-Run from anywhere else and config is saved to `%APPDATA%\PyRokuMe\config.json`.
 
 ---
 
@@ -106,7 +99,7 @@ Run from anywhere else and config is saved to `%APPDATA%\PyRokuMe\config.json`.
 | `]` / `+` | Volume Up |
 | `\` / `M` | Mute |
 
-All bindings are remappable from the **Keybinds** panel inside the app.
+All bindings are remappable from **⚙ Settings → Edit Key Bindings**.
 
 ---
 
@@ -133,28 +126,26 @@ Discovery uses two methods simultaneously:
 1. **SSDP** — sends a multicast probe to `239.255.255.250:1900` and listens for Roku responses
 2. **TCP scan** — probes `192.168.2.1` through `192.168.2.99` in parallel threads, checking if port `8060` is open
 
-Whichever finds your Roku first wins. Both run at the same time for speed.
-
 ---
 
 ## File structure
 
 ```
 PyRokuMe/
-├── PyRokuMe.pyw      # entire application — single file, no build step
-├── config.json       # auto-created: saved device, theme, position, keybinds
+├── PyRokuMe.pyw      # entire application — single file
+├── PyRokuMe.json     # auto-created: saved devices, theme, position, keybinds
+├── app.ico           # application icon
 ├── requirements.txt  # pip dependencies (requests only)
+├── CHANGELOG.md      # version history
 ├── LICENSE
 └── README.md
 ```
 
 ---
 
-## Contributing
+## Changelog
 
-Pull requests are welcome. For significant changes, please open an issue first to discuss what you'd like to change.
-
-If you find a Roku ECP command that isn't exposed yet, the relevant section is `_ECP_ACTIONS` near the top of the script.
+See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
 ---
 

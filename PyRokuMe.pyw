@@ -30,7 +30,7 @@ import subprocess
 import ctypes
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-_APP_VERSION = "1.0.0"
+_APP_VERSION = "1.0.1"
 _FONT        = "Courier New"
 _FS          = 9
 _ECP_PORT    = 8060
@@ -39,27 +39,16 @@ _SSDP_PORT   = 1900
 _SCAN_SUBNET = "192.168.2"          # scan .1 – .99 in addition to SSDP
 _NO_WIN      = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0x08000000
 
-# ── Portable mode ─────────────────────────────────────────────────────────────
-# The script's own directory — config.json lives here in portable mode.
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-def _is_portable_dir():
-    """True when the script already lives inside a folder named 'PyRokuMe'."""
-    return os.path.basename(_SCRIPT_DIR).lower() == "pyrokuMe".lower()
+# ── Config location ───────────────────────────────────────────────────────────
+_SCRIPT_DIR  = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, "frozen", False) else __file__))
+_APPDATA_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "PyRokuMe")
+_CFG_NAME    = "PyRokuMe.json"
 
 def _load_mode():
-    """
-    Return 'portable', 'standard', or None (first launch / undecided).
-    No extra files — mode is stored inside config.json under the 'mode' key,
-    or auto-detected from the folder name.
-    """
-    if _is_portable_dir():
-        return "portable"
-    # Check portable config first, then standard APPDATA location
+    """Return 'portable', 'standard', or None (first launch)."""
     for path in (
-        os.path.join(_SCRIPT_DIR, "config.json"),
-        os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")),
-                     "PyRokuMe", "config.json"),
+        os.path.join(_SCRIPT_DIR, _CFG_NAME),
+        os.path.join(_APPDATA_DIR, _CFG_NAME),
     ):
         try:
             with open(path) as f:
@@ -70,140 +59,29 @@ def _load_mode():
             pass
     return None
 
+def _resolve_app_dir(mode):
+    return _SCRIPT_DIR if mode == "portable" else _APPDATA_DIR
+
 def _save_mode(mode):
-    """Write the mode key into the correct config.json (no extra files)."""
-    if mode == "portable":
-        cfg_path = os.path.join(_SCRIPT_DIR, "config.json")
-    else:
-        d = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "PyRokuMe")
+    d = _resolve_app_dir(mode)
+    if mode == "standard":
         os.makedirs(d, exist_ok=True)
-        cfg_path = os.path.join(d, "config.json")
+    path = os.path.join(d, _CFG_NAME)
     try:
         try:
-            with open(cfg_path) as f:
+            with open(path) as f:
                 data = json.load(f)
         except Exception:
             data = {}
         data["mode"] = mode
-        with open(cfg_path, "w") as f:
+        with open(path, "w") as f:
             json.dump(data, f, indent=2)
     except Exception:
         pass
 
-def _show_portable_saved(portable_dir, new_script):
-    """
-    PyDisplay-styled popup shown after portable setup completes.
-    Tells the user where the folder is, with a button to open it in Explorer.
-    Relaunches the script when dismissed.
-    """
-    root = tk.Tk()
-    root.title("PyRokuMe — Portable Setup")
-    root.configure(bg=BG)
-    root.resizable(False, False)
-    root.wm_attributes("-topmost", True)
-    root.overrideredirect(True)
-
-    def _relaunch_and_close():
-        root.destroy()
-        subprocess.Popen(
-            [sys.executable, new_script],
-            creationflags=_NO_WIN,
-            close_fds=True,
-        )
-
-    _make_titlebar(root, PANEL, BORDER, SUBTEXT, RED,
-                   on_close=_relaunch_and_close,
-                   title_text="PyRokuMe  ·  portable setup complete",
-                   title_fg=TEXT, title_bg=PANEL)
-
-    body = tk.Frame(root, bg=BG, padx=16, pady=12)
-    body.pack(fill="x")
-
-    tk.Label(body, text="✔  Portable folder created",
-             bg=BG, fg=GREEN, font=(_FONT, _FS, "bold"), anchor="w").pack(fill="x")
-    tk.Frame(body, bg=BORDER, height=1).pack(fill="x", pady=(6, 8))
-    tk.Label(body, text="PyRokuMe will now run from:", bg=BG, fg=SUBTEXT,
-             font=(_FONT, _FS - 1), anchor="w").pack(fill="x")
-    tk.Label(body, text=portable_dir, bg=PANEL, fg=ACCENT,
-             font=(_FONT, _FS - 1), anchor="w", padx=8, pady=6,
-             wraplength=320, justify="left").pack(fill="x", pady=(2, 0))
-
-    tk.Frame(root, bg=BORDER, height=1).pack(fill="x", padx=12, pady=(10, 0))
-
-    bot = tk.Frame(root, bg=BG, pady=8, padx=16)
-    bot.pack(fill="x")
-
-    def _open_folder():
-        subprocess.Popen(["explorer.exe", portable_dir], creationflags=_NO_WIN)
-
-    open_btn = tk.Label(bot, text="📂  Open Folder", bg=BORDER, fg=SUBTEXT,
-                        font=(_FONT, _FS, "bold"), cursor="hand2", padx=12, pady=5)
-    open_btn.pack(side="left")
-    open_btn.bind("<Button-1>", lambda e: _open_folder())
-    open_btn.bind("<Enter>",    lambda e: open_btn.config(fg=TEXT))
-    open_btn.bind("<Leave>",    lambda e: open_btn.config(fg=SUBTEXT))
-
-    ok_btn = tk.Label(bot, text="▶  Launch", bg=ROKU_PURPLE, fg=TEXT,
-                      font=(_FONT, _FS, "bold"), cursor="hand2", padx=12, pady=5)
-    ok_btn.pack(side="right")
-    ok_btn.bind("<Button-1>", lambda e: _relaunch_and_close())
-    ok_btn.bind("<Enter>",    lambda e: ok_btn.config(bg=GREEN, fg=BG))
-    ok_btn.bind("<Leave>",    lambda e: ok_btn.config(bg=ROKU_PURPLE, fg=TEXT))
-
-    root.update_idletasks()
-    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    root.geometry(f"+{(sw - root.winfo_reqwidth()) // 2}+{(sh - root.winfo_reqheight()) // 2}")
-    root.mainloop()
-
-
-def _setup_portable():
-    """
-    Create a PyRokuMe folder next to the script, move PyRokuMe.pyw into it,
-    write config.json with mode=portable, then show a confirmation popup.
-    Returns True on success, False on failure.
-    """
-    import shutil
-    script_path  = os.path.abspath(__file__)
-    script_name  = os.path.basename(script_path)
-    parent_dir   = os.path.dirname(script_path)
-    portable_dir = os.path.join(parent_dir, "PyRokuMe")
-    new_script   = os.path.join(portable_dir, script_name)
-    new_cfg      = os.path.join(portable_dir, "config.json")
-
-    try:
-        os.makedirs(portable_dir, exist_ok=True)
-
-        # Write config.json into the new folder
-        try:
-            with open(new_cfg) as f:
-                data = json.load(f)
-        except Exception:
-            data = {}
-        data["mode"] = "portable"
-        with open(new_cfg, "w") as f:
-            json.dump(data, f, indent=2)
-
-        # Move the script (copy+delete avoids cross-drive issues)
-        shutil.copy2(script_path, new_script)
-        try:
-            os.remove(script_path)
-        except Exception:
-            pass    # non-fatal — duplicate is harmless
-
-        # Show confirmation popup — relaunch happens from inside it
-        _show_portable_saved(portable_dir, new_script)
-        return True
-    except Exception:
-        return False
-
-def _resolve_app_dir():
-    """Return the data directory based on the chosen/detected mode."""
-    if _load_mode() == "portable":
-        return _SCRIPT_DIR
-    return os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "PyRokuMe")
-
-_APP_DIR  = _resolve_app_dir()
-_CFG_PATH = os.path.join(_APP_DIR, "config.json")
+_mode    = _load_mode() or "standard"
+_APP_DIR = _resolve_app_dir(_mode)
+_CFG_PATH = os.path.join(_APP_DIR, _CFG_NAME)
 
 # ── Default keyboard → ECP mapping (user can override via theme popup) ────────
 _DEFAULT_KEYMAP = {
@@ -268,14 +146,49 @@ _SWP_NOZORDER       = 0x0004
 _SWP_NOACTIVATE     = 0x0010
 _SWP_FRAMECHANGED   = 0x0020
 _HWND_TOP           = 0
+# System tray
+_WM_TRAYNOTIFY      = 0x0401   # WM_USER + 1
+_NIM_ADD            = 0x00000000
+_NIM_DELETE         = 0x00000002
+_NIF_MESSAGE        = 0x00000001
+_NIF_ICON           = 0x00000002
+_NIF_TIP            = 0x00000004
+_GWLP_WNDPROC       = -4
+_IDI_APPLICATION    = 32512
+_MF_STRING          = 0x0000
+_MF_SEPARATOR       = 0x0800
+_TPM_RIGHTALIGN     = 0x0008
+_TPM_RETURNCMD      = 0x0100
 try:
     _user32  = ctypes.windll.user32
     _kernel32 = ctypes.windll.kernel32
-
+    _shell32  = ctypes.windll.shell32
     _WIN32   = True
 except Exception:
     _WIN32   = False
     _kernel32 = None
+    _shell32  = None
+
+
+class _NOTIFYICONDATA(ctypes.Structure):
+    # Full Vista+ struct (976 bytes on 64-bit) — cbSize must match exactly
+    _fields_ = [
+        ("cbSize",           ctypes.c_ulong),
+        ("hWnd",             ctypes.c_void_p),
+        ("uID",              ctypes.c_uint),
+        ("uFlags",           ctypes.c_uint),
+        ("uCallbackMessage", ctypes.c_uint),
+        ("hIcon",            ctypes.c_void_p),
+        ("szTip",            ctypes.c_wchar * 128),
+        ("dwState",          ctypes.c_ulong),
+        ("dwStateMask",      ctypes.c_ulong),
+        ("szInfo",           ctypes.c_wchar * 256),
+        ("uVersion",         ctypes.c_uint),
+        ("szInfoTitle",      ctypes.c_wchar * 64),
+        ("dwInfoFlags",      ctypes.c_ulong),
+        ("guidItem",         ctypes.c_byte * 16),
+        ("hBalloonIcon",     ctypes.c_void_p),
+    ]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -659,6 +572,16 @@ def ecp_apps(ip):
     import re
     return re.findall(r'<app id="(\d+)"[^>]*>(.*?)</app>', xml)
 
+def ecp_media_player(ip):
+    """Query /query/media-player. Returns {"state":str, "app":str} or None."""
+    xml = ecp_get(ip, "/query/media-player", timeout=2.0)
+    if not xml: return None
+    import re
+    state = re.search(r'\bstate="([^"]+)"', xml)
+    app   = re.search(r'<plugin[^>]+\bname="([^"]+)"', xml)
+    if not state: return None
+    return {"state": state.group(1), "app": app.group(1) if app else ""}
+
 
 def send_wol(mac: str):
     """Send a Wake-on-LAN magic packet to the given MAC address."""
@@ -685,6 +608,7 @@ _SSDP_MSG = (
 
 def ssdp_discover(timeout=4.0):
     found = {}
+    sock = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
@@ -705,22 +629,21 @@ def ssdp_discover(timeout=4.0):
     except Exception:
         pass
     finally:
-        try: sock.close()
-        except Exception: pass
+        if sock is not None:
+            try: sock.close()
+            except Exception: pass
     return list(found.values())
 
 
 def _probe_ecp(ip, found, lock):
     """Try to hit ECP port 8060. Adds ip to found if it responds."""
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.6)
-        err = s.connect_ex((ip, _ECP_PORT))
-        s.close()
-        if err == 0:
-            with lock:
-                if ip not in found:
-                    found[ip] = {"ip": ip}
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.6)
+            if s.connect_ex((ip, _ECP_PORT)) == 0:
+                with lock:
+                    if ip not in found:
+                        found[ip] = {"ip": ip}
     except Exception:
         pass
 
@@ -771,8 +694,39 @@ def _read_cfg():
 def _write_cfg(data):
     try:
         os.makedirs(_APP_DIR, exist_ok=True)
-        ex = _read_cfg(); ex.update(data)
-        with open(_CFG_PATH, "w") as f: json.dump(ex, f, indent=2)
+        ex = _read_cfg()
+        ex.update(data)
+        tmp = _CFG_PATH + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(ex, f, indent=2)
+        os.replace(tmp, _CFG_PATH)
+    except Exception as e:
+        sys.stderr.write(f"[PyRokuMe] config save failed: {e}\n")
+
+_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_RUN_NAME = "PyRokuMe"
+
+def _startup_enabled():
+    try:
+        import winreg
+        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY)
+        val, _ = winreg.QueryValueEx(k, _RUN_NAME)
+        winreg.CloseKey(k)
+        return bool(val)
+    except Exception:
+        return False
+
+def _set_startup(enable):
+    try:
+        import winreg
+        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE)
+        if enable:
+            exe = sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__)
+            winreg.SetValueEx(k, _RUN_NAME, 0, winreg.REG_SZ, f'"{exe}"')
+        else:
+            try: winreg.DeleteValue(k, _RUN_NAME)
+            except FileNotFoundError: pass
+        winreg.CloseKey(k)
     except Exception:
         pass
 
@@ -814,8 +768,28 @@ class RokuRemote(tk.Tk):
         self._popup_keybinds = None
         self._popup_apps     = None
         self._popup_manual   = None
+        self._popup_wol      = None
+        self._popup_input    = None
+        self._popup_switcher = None
+        self._popup_keyboard = None
+        self._popup_settings = None
         self._mac            = ""
-        self._opacity    = 1.0
+        self._opacity        = 1.0
+        # Marquee
+        self._marquee_text   = ""
+        self._marquee_color  = SUBTEXT
+        self._marquee_x      = 0.0
+        self._marquee_scrolling = False
+        self._marquee_job    = None
+        self._marquee_id1    = None
+        self._marquee_id2    = None
+        # Now-playing
+        self._np_job         = None
+        self._np_text        = ""
+        # Tray
+        self._tray_hwnd      = None
+        self._tray_nid       = None
+        self._tray_proc      = None
 
         cfg = _read_cfg()
         saved_ip   = cfg.get("last_ip", "")
@@ -825,6 +799,11 @@ class RokuRemote(tk.Tk):
         self._reconnect_job   = None   # after() handle for auto-reconnect
         self._was_online      = False  # tracks last known connectivity state
 
+        # Button font size (user-adjustable, default = _FS + 2)
+        try:    self._btn_fs = max(_FS, min(_FS + 8, int(cfg.get("btn_fs", _FS + 2))))
+        except: self._btn_fs = _FS + 2
+        self._all_gbtn = []   # live references for size updates
+
         # Restore saved opacity
         saved_opacity = cfg.get("opacity", 1.0)
         try:    self._opacity = max(0.2, min(1.0, float(saved_opacity)))
@@ -832,6 +811,9 @@ class RokuRemote(tk.Tk):
 
         # Restore always-on-top preference
         self._always_on_top = bool(cfg.get("always_on_top", False))
+
+        # Close to tray
+        self._close_to_tray = bool(cfg.get("close_to_tray", False))
 
         # Load saved keymap
         saved_km = cfg.get("keymap", {})
@@ -852,6 +834,7 @@ class RokuRemote(tk.Tk):
             self.configure(bg=BG)
 
         self._build_ui()
+        self._set_device_name("No device connected", SUBTEXT)
 
         # Restore saved geometry — applied after window is ready
         self._saved_geo = {
@@ -862,7 +845,7 @@ class RokuRemote(tk.Tk):
         }
         self.after(10, self._restore_geometry)
 
-        self.protocol("WM_DELETE_WINDOW", self._quit)
+        self.protocol("WM_DELETE_WINDOW", self._on_close_btn)
         self.bind("<Destroy>",       self._on_destroy)
         self.bind_all("<KeyPress>",  self._on_key)
         self.bind("<FocusIn>",       lambda e: self._on_main_focus() if e.widget is self else None)
@@ -880,6 +863,11 @@ class RokuRemote(tk.Tk):
         self.after(100, self._apply_opacity)
         self.after(110, self._apply_always_on_top)
         self.after(200, self._init_window_style)
+        if self._close_to_tray:
+            self.after(300, self._setup_tray)
+        # Watch for 'show' requests from a second launch attempt (clear any stale one first)
+        _clear_show_signal()
+        self.after(400, self._poll_show_signal)
         # If we have a saved IP try to reconnect silently, else scan
         if saved_ip:
             self.after(150, lambda: self._try_reconnect_startup(saved_ip))
@@ -956,7 +944,7 @@ class RokuRemote(tk.Tk):
                 _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOZORDER |
                 _SWP_NOACTIVATE | _SWP_FRAMECHANGED)
             self.withdraw()
-            self.after(50, self.deiconify)
+            self.after(500, self.deiconify)
         except Exception:
             self._hwnd = None
 
@@ -1099,11 +1087,22 @@ class RokuRemote(tk.Tk):
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
+    def _on_close_btn(self):
+        if self._close_to_tray:
+            self.withdraw()
+            if not self._tray_hwnd:
+                self._setup_tray()
+        else:
+            self._quit()
+
     def _quit(self):
         self._closing = True
+        self._stop_now_playing()
+        self._remove_tray()
         self._write_pos()
         _write_cfg({"last_ip": self._ip or ""})
         _clear_lock_pid()
+        _clear_show_signal()
         self.destroy()
 
     def _on_destroy(self, e):
@@ -1140,21 +1139,14 @@ class RokuRemote(tk.Tk):
                     _SWP_NOACTIVATE | _SWP_FRAMECHANGED)
             except Exception:
                 pass
-        try:
-            if hasattr(self, "_pin_btn"):
-                self._pin_btn.config(
-                    fg=ACCENT if self._always_on_top else SUBTEXT,
-                    bg=DIM    if self._always_on_top else BORDER)
-        except Exception:
-            pass
 
 
     def _build_ui(self):
         tb = _make_titlebar(self, PANEL, BORDER, SUBTEXT, RED,
-                            on_close=self._quit,
+                            on_close=self._on_close_btn,
                             title_text="  📺  PyRokuMe",
                             title_fg=SUBTEXT, title_bg=PANEL)
-        # Theme button on right side of titlebar
+        # Theme button
         theme_btn = tk.Label(tb, text=" 🎨 ", bg=BORDER, fg=SUBTEXT,
                              font=(_FONT, _FS, "bold"), cursor="hand2", padx=2, pady=2)
         theme_btn.pack(side="right", padx=(0, 4))
@@ -1162,55 +1154,34 @@ class RokuRemote(tk.Tk):
         theme_btn.bind("<Enter>",    lambda e: theme_btn.config(fg=ACCENT))
         theme_btn.bind("<Leave>",    lambda e: theme_btn.config(fg=SUBTEXT))
 
-        # Always-on-top pin button
-        self._pin_btn = tk.Label(tb, text=" 📌 ",
-                                 bg=DIM if self._always_on_top else BORDER,
-                                 fg=ACCENT if self._always_on_top else SUBTEXT,
-                                 font=(_FONT, _FS, "bold"), cursor="hand2", padx=2, pady=2)
-        self._pin_btn.pack(side="right", padx=(0, 2))
-        self._pin_btn.bind("<Button-1>", lambda e: self._apply_always_on_top(not self._always_on_top))
-        self._pin_btn.bind("<Enter>",    lambda e: self._pin_btn.config(fg=GREEN))
-        self._pin_btn.bind("<Leave>",    lambda e: self._pin_btn.config(
-            fg=ACCENT if self._always_on_top else SUBTEXT))
-
+        # Settings button
+        settings_btn = tk.Label(tb, text=" ⚙ ", bg=BORDER, fg=SUBTEXT,
+                                font=(_FONT, _FS, "bold"), cursor="hand2", padx=2, pady=2)
+        settings_btn.pack(side="right", padx=(0, 2))
+        settings_btn.bind("<Button-1>", lambda e: self._open_settings())
+        settings_btn.bind("<Enter>",    lambda e: settings_btn.config(fg=ACCENT))
+        settings_btn.bind("<Leave>",    lambda e: settings_btn.config(fg=SUBTEXT))
 
         # Bind drag (move only) to titlebar — body is resize-edge only
         x_btn = tb.winfo_children()[0]   # first child is always the ✕ button
         for w in [tb] + list(tb.winfo_children()):
-            if w in {theme_btn, self._pin_btn, x_btn}: continue
+            if w in {theme_btn, settings_btn, x_btn}: continue
             w.bind("<ButtonPress-1>",   self._drag_start)
             w.bind("<B1-Motion>",       self._drag_move)
             w.bind("<ButtonRelease-1>", self._drag_end)
 
-        # Device bar
+        # Device bar — marquee only, controls moved to Settings
         info_row = tk.Frame(self, bg=PANEL, padx=10, pady=5)
         info_row.pack(fill="x")
-        self._device_lbl = tk.Label(info_row, text="No device connected",
-                                     bg=PANEL, fg=SUBTEXT,
-                                     font=(_FONT, _FS - 1, "bold"), anchor="w")
-        self._device_lbl.pack(side="left", fill="x", expand=True)
-        self._disc_btn = tk.Label(info_row, text="⌕ SCAN", bg=BORDER,
-                                   fg=ACCENT, font=(_FONT, _FS - 2, "bold"),
-                                   cursor="hand2", padx=8, pady=2)
-        self._disc_btn.pack(side="right")
-        self._disc_btn.bind("<Button-1>", lambda e: self._start_discovery())
-        self._disc_btn.bind("<Enter>",    lambda e: self._disc_btn.config(fg=GREEN))
-        self._disc_btn.bind("<Leave>",    lambda e: self._disc_btn.config(fg=ACCENT))
-        # Saved devices quick-switch button
-        self._sw_btn = tk.Label(info_row, text="▾", bg=BORDER,
-                                fg=SUBTEXT, font=(_FONT, _FS - 2, "bold"),
-                                cursor="hand2", padx=4, pady=2)
-        self._sw_btn.pack(side="right", padx=(0, 2))
-        self._sw_btn.bind("<Button-1>", lambda e: self._open_device_switcher())
-        self._sw_btn.bind("<Enter>",    lambda e: self._sw_btn.config(fg=ACCENT))
-        self._sw_btn.bind("<Leave>",    lambda e: self._sw_btn.config(fg=SUBTEXT))
-        wol_btn = tk.Label(info_row, text="⚡WOL", bg=BORDER,
-                           fg=YELLOW, font=(_FONT, _FS - 2, "bold"),
-                           cursor="hand2", padx=8, pady=2)
-        wol_btn.pack(side="right", padx=(0, 4))
-        wol_btn.bind("<Button-1>", lambda e: self._open_wol())
-        wol_btn.bind("<Enter>",    lambda e: wol_btn.config(fg=GREEN))
-        wol_btn.bind("<Leave>",    lambda e: wol_btn.config(fg=YELLOW))
+        # Canvas last — only takes leftover space
+        self._marquee_cv = tk.Canvas(info_row, bg=PANEL, height=18,
+                                      highlightthickness=0)
+        self._marquee_cv.pack(side="left", fill="x", expand=True)
+        self._marquee_id1 = self._marquee_cv.create_text(0, 9, text="", anchor="w",
+                                fill=SUBTEXT, font=(_FONT, _FS - 1, "bold"))
+        self._marquee_id2 = self._marquee_cv.create_text(0, 9, text="", anchor="w",
+                                fill=SUBTEXT, font=(_FONT, _FS - 1, "bold"))
+        self._marquee_cv.bind("<Configure>", lambda e: self._marquee_restart())
         tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
 
         # ── Stretching body — grid rows all weighted so buttons fill the window ──
@@ -1254,7 +1225,7 @@ class RokuRemote(tk.Tk):
                    SUBTEXT, "Home  [Esc / H]").grid(row=0, column=1, sticky="nsew", padx=3, pady=3)
         self._gbtn(r1, "🔇", lambda: ecp_keypress(self._ip, "VolumeMute"),
                    YELLOW,  "Mute  [\\ / M]").grid(row=0, column=2, sticky="nsew", padx=3, pady=3)
-        self._gbtn(r1, "⏻", lambda: ecp_keypress(self._ip, "Power"),
+        self._gbtn(r1, "⏻", self._power_press,
                    RED,     "Power toggle").grid(row=0, column=3, sticky="nsew", padx=3, pady=3)
 
         # sep
@@ -1333,12 +1304,14 @@ class RokuRemote(tk.Tk):
 
         # ── Row 9 — ✦ Apps / ⌖ Info ──────────────────────────────────────────
         r5 = _row_frame(9, pad_bot=2)
-        r5.columnconfigure((0, 1), weight=1, uniform="r5")
+        r5.columnconfigure((0, 1, 2), weight=1, uniform="r5")
         r5.rowconfigure(0, weight=1)
         self._gbtn(r5, "✦ Apps", self._open_apps,
                    ACCENT,  "Browse & launch apps").grid(row=0, column=0, sticky="nsew", padx=3, pady=3)
         self._gbtn(r5, "⌖ Info", lambda: ecp_keypress(self._ip, "Info"),
                    SUBTEXT, "Info  [I]").grid(row=0, column=1, sticky="nsew", padx=3, pady=3)
+        self._gbtn(r5, "⎇ Input", self._open_input_switcher,
+                   ACCENT2, "Switch HDMI input").grid(row=0, column=2, sticky="nsew", padx=3, pady=3)
 
         # Status bar with resize grip
         tk.Frame(self, bg=BORDER, height=1).pack(fill="x", side="bottom")
@@ -1381,9 +1354,11 @@ class RokuRemote(tk.Tk):
     def _gbtn(self, parent, label, cmd, fg=SUBTEXT, tip="", bold=False):
         """Button that fills its grid cell — height driven entirely by row weight."""
         b = tk.Label(parent, text=label, bg=BORDER, fg=fg,
-                     font=(_FONT, _FS + 2, "bold" if bold else "normal"),
+                     font=(_FONT, self._btn_fs, "bold" if bold else "normal"),
                      cursor="hand2", padx=4, pady=0,
                      anchor="center", relief="flat")
+        b._gbtn_bold = bold
+        self._all_gbtn.append(b)
 
         def _click(e):
             if not self._ip:
@@ -1449,44 +1424,43 @@ class RokuRemote(tk.Tk):
         k = e.keysym.lower()
         key = self._keymap.get(k)
         if key:
-            threading.Thread(target=ecp_keypress, args=(self._ip, key), daemon=True).start()
+            if key == "Power":
+                threading.Thread(target=self._power_press, daemon=True).start()
+            else:
+                threading.Thread(target=ecp_keypress, args=(self._ip, key), daemon=True).start()
 
     # ── Discovery ─────────────────────────────────────────────────────────────
 
-    def _start_discovery(self, preferred_ip=None):
-        self._disc_btn.config(text="⌕ ...", fg=YELLOW, cursor="arrow")
-        self._disc_btn.unbind("<Button-1>")
+    def _start_discovery(self, preferred_ip=None, on_done=None):
         self._set_status(f"Scanning SSDP + {_SCAN_SUBNET}.1–99…", ACCENT, 0)
         threading.Thread(target=self._discovery_worker,
-                         args=(preferred_ip,), daemon=True).start()
+                         args=(preferred_ip, on_done), daemon=True).start()
 
-    def _discovery_worker(self, preferred_ip=None):
+    def _discovery_worker(self, preferred_ip=None, on_done=None):
         raw = discover_all(timeout=5.0)
         enriched = []
         for d in raw:
             info = ecp_device_info(d["ip"])
-            if not info: continue   # port open but not a Roku ECP endpoint
+            if not info: continue
             name = (info.get("user-device-name")
                     or info.get("friendly-device-name")
                     or info.get("model-name") or d["ip"])
             enriched.append({"ip": d["ip"], "name": name, "info": info})
-        self.after(0, lambda: self._discovery_done(enriched, preferred_ip))
+        self.after(0, lambda: self._discovery_done(enriched, preferred_ip, on_done))
 
-    def _discovery_done(self, devices, preferred_ip=None):
-        self._disc_btn.config(text="⌕ SCAN", fg=ACCENT, cursor="hand2")
-        self._disc_btn.bind("<Button-1>", lambda e: self._start_discovery())
+    def _discovery_done(self, devices, preferred_ip=None, on_done=None):
         self._devices = devices
+        if on_done:
+            on_done(devices); return
         if not devices:
             self._set_status("No Roku found. Enter IP manually.", RED, 0)
             self._open_manual_ip(); return
-        # Always show picker — never auto-connect
         self._open_device_picker(devices)
 
     def _connect(self, device):
         self._ip = device["ip"]
         self._device_name = device["name"]
-        self._device_lbl.config(
-            text=f"📺  {device['name']}", fg=GREEN)
+        self._set_device_name(f"📺  {device['name']}", GREEN)
         self._was_online = True
         # Add/update in saved devices list (max 10, most-recent first)
         entry = {"name": device["name"], "ip": device["ip"]}
@@ -1497,6 +1471,7 @@ class RokuRemote(tk.Tk):
         _write_cfg({"last_ip": self._ip, "saved_devices": self._saved_devices})
         self._set_status(f"Connected to {device['name']}", GREEN)
         self._start_reconnect_watcher()
+        self._start_now_playing()
 
     # ── Auto-reconnect watcher ───────────────────────────────────────────────────
 
@@ -1518,18 +1493,16 @@ class RokuRemote(tk.Tk):
         if self._closing: return
         if info:
             if not self._was_online:
-                # Came back online
                 self._was_online = True
-                self._device_lbl.config(
-                    text=f"📺  {self._device_name}", fg=GREEN)
+                self._set_device_name(f"📺  {self._device_name}", GREEN)
                 self._set_status(f"Reconnected to {self._device_name}", GREEN)
+                self._start_now_playing()
         else:
             if self._was_online:
-                # Just went offline
                 self._was_online = False
-                self._device_lbl.config(
-                    text=f"📺  {self._device_name}  ⚠ offline", fg=YELLOW)
+                self._set_device_name(f"📺  {self._device_name}  ⚠ offline", YELLOW)
                 self._set_status(f"Lost connection to {self._device_name}", YELLOW)
+                self._stop_now_playing()
         # Schedule next check (5s if offline, 12s if online)
         interval = 5000 if not self._was_online else 12000
         self._reconnect_job = self.after(interval, self._reconnect_tick)
@@ -1638,8 +1611,11 @@ class RokuRemote(tk.Tk):
     def _open_device_switcher(self):
         if not self._saved_devices:
             self._set_status("No saved devices — click ⌕ SCAN first", SUBTEXT); return
+        if self._popup_switcher and self._popup_switcher.winfo_exists():
+            self._popup_switcher.lift(); self._popup_switcher.focus_force(); return
 
         dlg = tk.Toplevel(self); dlg.configure(bg=BG)
+        self._popup_switcher = dlg
         dlg.resizable(False, False); dlg.overrideredirect(True)
         dlg.withdraw(); dlg.wm_attributes("-topmost", True); dlg.transient(self)
         _register_popup(dlg)
@@ -1701,7 +1677,29 @@ class RokuRemote(tk.Tk):
                             fg=SUBTEXT, font=(_FONT, _FS - 1), cursor="hand2",
                             anchor="w", pady=4)
         scan_lbl.pack(fill="x")
-        scan_lbl.bind("<Button-1>", lambda e: (dlg.destroy(), self._start_discovery()))
+
+        def _do_scan():
+            scan_lbl.config(text="⌕  Searching…", fg=YELLOW, cursor="arrow")
+            scan_lbl.unbind("<Button-1>")
+            scan_lbl.unbind("<Enter>")
+            scan_lbl.unbind("<Leave>")
+
+            def _done(devices):
+                if not dlg.winfo_exists(): return
+                if not devices:
+                    scan_lbl.config(text="✕  No devices found", fg=RED, cursor="")
+                    return
+                # Merge new devices into saved list
+                for d in devices:
+                    if not any(x["ip"] == d["ip"] for x in self._saved_devices):
+                        self._saved_devices.append({"name": d["name"], "ip": d["ip"]})
+                _write_cfg({"saved_devices": self._saved_devices})
+                dlg.destroy()
+                self._open_device_switcher()
+
+            self._start_discovery(on_done=_done)
+
+        scan_lbl.bind("<Button-1>", lambda e: _do_scan())
         scan_lbl.bind("<Enter>",    lambda e: scan_lbl.config(fg=ACCENT))
         scan_lbl.bind("<Leave>",    lambda e: scan_lbl.config(fg=SUBTEXT))
 
@@ -1711,10 +1709,422 @@ class RokuRemote(tk.Tk):
         cy = self.winfo_rooty() + self.winfo_height() // 2 - dlg.winfo_reqheight() // 2
         dlg.geometry(f"+{cx}+{cy}"); dlg.deiconify()
 
+    # ── Marquee device-name ───────────────────────────────────────────────────
+
+    def _set_device_name(self, text, color=None):
+        self._marquee_text  = text
+        self._marquee_color = color or SUBTEXT
+        if self._marquee_job:
+            try: self.after_cancel(self._marquee_job)
+            except Exception: pass
+            self._marquee_job = None
+        self._marquee_scrolling = False
+        self._marquee_restart()
+
+    def _marquee_restart(self):
+        cv = self._marquee_cv
+        if not cv.winfo_exists(): return
+        if not self._marquee_id1: return
+        col = self._marquee_color
+        cv.itemconfig(self._marquee_id1, text=self._marquee_text, fill=col)
+        cv.itemconfig(self._marquee_id2, text=self._marquee_text, fill=col)
+        cv.update_idletasks()
+        bb = cv.bbox(self._marquee_id1)
+        cw = cv.winfo_width()
+        if not bb or cw < 4:
+            self._marquee_scrolling = False
+            return
+        text_w = bb[2] - bb[0]
+        if text_w <= cw - 8:
+            # Fits — show static, centred left
+            self._marquee_scrolling = False
+            cv.coords(self._marquee_id1, 4, 9)
+            cv.coords(self._marquee_id2, 9999, 9)
+            return
+        self._marquee_scrolling = True
+        self._marquee_x = float(cw)
+        cv.coords(self._marquee_id1, self._marquee_x, 9)
+        cv.coords(self._marquee_id2, self._marquee_x + text_w + 40, 9)
+        if not self._marquee_job:
+            self._marquee_job = self.after(30, self._marquee_tick)
+
+    def _marquee_tick(self):
+        self._marquee_job = None
+        if not self._marquee_scrolling: return
+        cv = self._marquee_cv
+        if not cv.winfo_exists(): return
+        bb = cv.bbox(self._marquee_id1)
+        if not bb:
+            self._marquee_job = self.after(30, self._marquee_tick); return
+        text_w = bb[2] - bb[0]
+        loop = text_w + 40
+        self._marquee_x -= 1.2
+        if self._marquee_x < -text_w:
+            self._marquee_x += loop
+        cv.coords(self._marquee_id1, self._marquee_x, 9)
+        cv.coords(self._marquee_id2, self._marquee_x + loop, 9)
+        self._marquee_job = self.after(30, self._marquee_tick)
+
+    # ── Now playing ───────────────────────────────────────────────────────────
+
+    def _start_now_playing(self):
+        self._stop_now_playing()
+        self._np_job = self.after(3000, self._np_tick)
+
+    def _stop_now_playing(self):
+        if self._np_job:
+            try: self.after_cancel(self._np_job)
+            except Exception: pass
+            self._np_job = None
+        self._np_text = ""
+
+    def _np_tick(self):
+        if self._closing or not self._ip: return
+        def _fetch():
+            info = ecp_media_player(self._ip)
+            self.after(0, lambda: self._np_result(info))
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _np_result(self, info):
+        if self._closing: return
+        if info:
+            state = info.get("state", "")
+            app   = info.get("app", "")
+            if state == "play":
+                self._np_text = f"▶  {app}" if app else "▶  Playing"
+            elif state == "pause":
+                self._np_text = f"⏸  {app}" if app else "⏸  Paused"
+            elif state == "buffer":
+                self._np_text = f"⌛  {app}" if app else "⌛  Buffering"
+            else:
+                self._np_text = ""
+        else:
+            self._np_text = ""
+        self._np_show()
+        if not self._closing and self._ip:
+            self._np_job = self.after(8000, self._np_tick)
+
+    def _np_show(self):
+        """Paint now-playing in status bar only when no active message is shown."""
+        cur = self._status_lbl.cget("text")
+        if cur in ("Ready", "") or cur == self._np_text:
+            if self._np_text:
+                self._status_lbl.config(text=self._np_text, fg=DIM)
+            else:
+                self._status_lbl.config(text="Ready", fg=DIM)
+
+    # ── System tray ───────────────────────────────────────────────────────────
+
+    def _setup_tray(self):
+        if not (_WIN32 and _user32 and _shell32): return
+        if self._tray_hwnd: return
+        try:
+            u = _user32; s = _shell32
+            _sz  = ctypes.c_size_t
+            _vp  = ctypes.c_void_p
+            _ui  = ctypes.c_uint
+            _int = ctypes.c_int
+
+            # WNDPROC: all pointer-sized args must be c_size_t on 64-bit
+            _WNDPROC_T = ctypes.WINFUNCTYPE(_sz, _vp, _ui, _sz, _sz)
+
+            def _proc(h, msg, wp, lp):
+                if msg == _WM_TRAYNOTIFY:
+                    ev = lp & 0xFFFF
+                    if ev in (0x0202, 0x0203):   # left / double click
+                        self.after(0, self._tray_toggle)
+                    elif ev == 0x0205:            # right click
+                        self.after(0, self._tray_context)
+                    return 0
+                u.DefWindowProcW.argtypes = [_vp, _ui, _sz, _sz]
+                u.DefWindowProcW.restype  = _sz
+                return u.DefWindowProcW(h, msg, wp, lp)
+
+            self._tray_proc = _WNDPROC_T(_proc)
+
+            # Register our own window class so we own the WNDPROC from the start —
+            # no SetWindowLongPtr subclassing needed.
+            class _WNDCLASSEXW(ctypes.Structure):
+                _fields_ = [
+                    ("cbSize",        ctypes.c_uint),
+                    ("style",         ctypes.c_uint),
+                    ("lpfnWndProc",   _vp),
+                    ("cbClsExtra",    ctypes.c_int),
+                    ("cbWndExtra",    ctypes.c_int),
+                    ("hInstance",     _vp),
+                    ("hIcon",         _vp),
+                    ("hCursor",       _vp),
+                    ("hbrBackground", _vp),
+                    ("lpszMenuName",  ctypes.c_wchar_p),
+                    ("lpszClassName", ctypes.c_wchar_p),
+                    ("hIconSm",       _vp),
+                ]
+
+            _CLS = "PyRokuMeTrayWnd"
+            u.UnregisterClassW.argtypes = [ctypes.c_wchar_p, _vp]
+            u.UnregisterClassW.restype  = ctypes.c_int
+            u.UnregisterClassW(_CLS, None)   # clean up from any previous instance
+
+            wc = _WNDCLASSEXW()
+            wc.cbSize      = ctypes.sizeof(_WNDCLASSEXW)
+            wc.lpfnWndProc = ctypes.cast(self._tray_proc, _vp).value
+            wc.lpszClassName = _CLS
+
+            u.RegisterClassExW.argtypes = [_vp]
+            u.RegisterClassExW.restype  = ctypes.c_ushort
+            if not u.RegisterClassExW(ctypes.byref(wc)):
+                return
+
+            u.CreateWindowExW.argtypes = [
+                _ui, ctypes.c_wchar_p, ctypes.c_wchar_p, _ui,
+                _int, _int, _int, _int,
+                _vp, _vp, _vp, _vp,
+            ]
+            u.CreateWindowExW.restype = _vp
+            hwnd = u.CreateWindowExW(0, _CLS, "PyRokuMeTray", 0,
+                                     0, 0, 0, 0, None, None, None, None)
+            if not hwnd:
+                u.UnregisterClassW(_CLS, None)
+                return
+
+            u.LoadIconW.argtypes = [_vp, ctypes.c_wchar_p]
+            u.LoadIconW.restype  = _vp
+            s.ExtractIconW.argtypes = [_vp, ctypes.c_wchar_p, _ui]
+            s.ExtractIconW.restype  = _vp
+            s.Shell_NotifyIconW.restype = ctypes.c_int
+
+            exe_path = sys.executable if getattr(sys, "frozen", False) else None
+            hico = 0
+            if exe_path:
+                try: hico = s.ExtractIconW(None, exe_path, 0) or 0
+                except Exception: hico = 0
+            if not hico:
+                hico = u.LoadIconW(None, _IDI_APPLICATION)
+
+            nid = _NOTIFYICONDATA()
+            nid.cbSize           = ctypes.sizeof(_NOTIFYICONDATA)
+            nid.hWnd             = hwnd
+            nid.uID              = 1
+            nid.uFlags           = _NIF_MESSAGE | _NIF_ICON | _NIF_TIP
+            nid.uCallbackMessage = _WM_TRAYNOTIFY
+            nid.hIcon            = hico
+            nid.szTip            = "PyRokuMe — click to show/hide"
+
+            u.DestroyWindow.argtypes = [_vp]
+            if s.Shell_NotifyIconW(_NIM_ADD, ctypes.byref(nid)):
+                self._tray_hwnd = hwnd
+                self._tray_nid  = nid
+                self._pump_tray()
+            else:
+                u.DestroyWindow(hwnd)
+                u.UnregisterClassW(_CLS, None)
+        except Exception:
+            pass
+
+    def _pump_tray(self):
+        if self._closing or not self._tray_hwnd: return
+        try:
+            u = _user32
+            u.PeekMessageW.argtypes     = [ctypes.c_void_p, ctypes.c_void_p,
+                                            ctypes.c_uint, ctypes.c_uint, ctypes.c_uint]
+            u.PeekMessageW.restype      = ctypes.c_int
+            u.TranslateMessage.argtypes = [ctypes.c_void_p]
+            u.TranslateMessage.restype  = ctypes.c_int
+            u.DispatchMessageW.argtypes = [ctypes.c_void_p]
+            u.DispatchMessageW.restype  = ctypes.c_size_t
+            # ctypes.wintypes.MSG has WPARAM/LPARAM as 32-bit on all platforms,
+            # but Windows fills them as pointer-sized (8 bytes) on 64-bit —
+            # using it causes a buffer overflow.  Define the correct layout.
+            class _MSG(ctypes.Structure):
+                _fields_ = [
+                    ("hwnd",    ctypes.c_void_p),
+                    ("message", ctypes.c_uint),
+                    ("_pad",    ctypes.c_uint),     # align wParam to 8 bytes
+                    ("wParam",  ctypes.c_size_t),
+                    ("lParam",  ctypes.c_size_t),
+                    ("time",    ctypes.c_ulong),
+                    ("ptX",     ctypes.c_long),
+                    ("ptY",     ctypes.c_long),
+                    ("_extra",  ctypes.c_ulong),    # struct padded to 48 bytes
+                ]
+            msg = _MSG()
+            while u.PeekMessageW(ctypes.byref(msg), self._tray_hwnd, 0, 0, 1):
+                u.TranslateMessage(ctypes.byref(msg))
+                u.DispatchMessageW(ctypes.byref(msg))
+        except Exception:
+            pass
+        self.after(150, self._pump_tray)
+
+    def _remove_tray(self):
+        if self._tray_nid and _shell32:
+            try: _shell32.Shell_NotifyIconW(_NIM_DELETE, ctypes.byref(self._tray_nid))
+            except Exception: pass
+        if self._tray_hwnd and _user32:
+            try: _user32.DestroyWindow(self._tray_hwnd)
+            except Exception: pass
+        self._tray_hwnd = None
+        self._tray_nid  = None
+
+    def _restore_self(self):
+        """Surface the main window from the tray / behind other windows.
+        Always goes through Tk so Tk's wm state and Win32 stay in sync — this is
+        also what a second launch's 'Show window' button drives, via a signal
+        file, instead of poking our windows from another process."""
+        try:
+            self.deiconify()
+            self.lift()
+            self.wm_attributes("-topmost", True)
+            if not self._always_on_top:
+                self.after(400, lambda: self.wm_attributes("-topmost", False))
+            # Re-stamp TOOLWINDOW so it stays out of the taskbar / Alt+Tab.
+            if self._hwnd and _user32:
+                style = _user32.GetWindowLongW(self._hwnd, _GWL_EXSTYLE)
+                style = (style | _WS_EX_TOOLWINDOW) & ~_WS_EX_APPWINDOW
+                _user32.SetWindowLongW(self._hwnd, _GWL_EXSTYLE, style)
+                _user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+                _user32.SetForegroundWindow.restype  = ctypes.c_int
+                _user32.SetForegroundWindow(self._hwnd)
+        except Exception:
+            pass
+
+    def _poll_show_signal(self):
+        """Watch for a 'show' request dropped by a second launch attempt."""
+        if self._closing:
+            return
+        try:
+            if os.path.exists(_show_signal_path()):
+                _clear_show_signal()
+                self._restore_self()
+        except Exception:
+            pass
+        self.after(400, self._poll_show_signal)
+
+    def _tray_toggle(self):
+        # Debounce: a tray double-click delivers several click messages; without
+        # this the window toggles an even number of times and ends up hidden.
+        now = time.time()
+        if now - getattr(self, "_tray_last_toggle", 0.0) < 0.4:
+            return
+        self._tray_last_toggle = now
+        try:
+            if self.winfo_viewable():
+                self.withdraw()
+            else:
+                self._restore_self()
+        except Exception:
+            pass
+
+    def _tray_context(self):
+        """Right-click context menu for the tray icon."""
+        if not (_WIN32 and _user32): return
+        try:
+            u = _user32
+            # Set argtypes/restypes for all menu APIs (64-bit safe)
+            u.CreatePopupMenu.argtypes = []
+            u.CreatePopupMenu.restype  = ctypes.c_void_p
+            u.AppendMenuW.argtypes = [ctypes.c_void_p, ctypes.c_uint,
+                                       ctypes.c_size_t, ctypes.c_wchar_p]
+            u.AppendMenuW.restype  = ctypes.c_int
+            u.TrackPopupMenu.argtypes = [ctypes.c_void_p, ctypes.c_uint,
+                                          ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                          ctypes.c_void_p, ctypes.c_void_p]
+            u.TrackPopupMenu.restype  = ctypes.c_int
+            u.DestroyMenu.argtypes = [ctypes.c_void_p]
+            u.DestroyMenu.restype  = ctypes.c_int
+            u.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+            u.SetForegroundWindow.restype  = ctypes.c_int
+            u.GetCursorPos.argtypes = [ctypes.c_void_p]
+            u.GetCursorPos.restype  = ctypes.c_int
+
+            class _POINT(ctypes.Structure):
+                _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+            pt = _POINT()
+            u.GetCursorPos(ctypes.byref(pt))
+
+            label = "Hide PyRokuMe" if self.winfo_viewable() else "Show PyRokuMe"
+            hmenu = u.CreatePopupMenu()
+            if not hmenu:
+                return
+            u.AppendMenuW(hmenu, _MF_STRING,    1, label)
+            u.AppendMenuW(hmenu, _MF_SEPARATOR, 0, None)
+            u.AppendMenuW(hmenu, _MF_STRING,    2, "Quit PyRokuMe")
+            if self._tray_hwnd:
+                u.SetForegroundWindow(self._tray_hwnd)
+            cmd = u.TrackPopupMenu(
+                hmenu, _TPM_RETURNCMD | _TPM_RIGHTALIGN,
+                pt.x, pt.y, 0, self._tray_hwnd or 0, None)
+            u.DestroyMenu(hmenu)
+            if cmd == 1: self._tray_toggle()
+            elif cmd == 2: self._quit()
+        except Exception:
+            pass
+
+    # ── Input switcher ────────────────────────────────────────────────────────
+
+    def _open_input_switcher(self):
+        if not self._ip:
+            self._set_status("No Roku connected — click ⌕ SCAN", RED); return
+        if self._popup_input and self._popup_input.winfo_exists():
+            self._popup_input.lift(); self._popup_input.focus_force(); return
+        dlg = tk.Toplevel(self); dlg.configure(bg=BG)
+        self._popup_input = dlg
+        dlg.resizable(False, False); dlg.overrideredirect(True)
+        dlg.withdraw()
+        dlg.wm_attributes("-topmost", True)
+        dlg.transient(self)
+        _register_popup(dlg)
+        _make_titlebar(dlg, PANEL, BORDER, SUBTEXT, RED, on_close=dlg.destroy,
+                       title_text="  ⎇  Switch Input", title_fg=TEXT, title_bg=PANEL,
+                       draggable=False)
+        inner = tk.Frame(dlg, bg=BG, padx=16, pady=12); inner.pack(fill="both")
+
+        inputs = [
+            ("HDMI 1", "InputHDMI1",  ACCENT),
+            ("HDMI 2", "InputHDMI2",  ACCENT),
+            ("HDMI 3", "InputHDMI3",  ACCENT),
+            ("HDMI 4", "InputHDMI4",  ACCENT),
+            ("AV",     "InputAV1",    SUBTEXT),
+            ("TV / Tuner", "InputTuner", SUBTEXT),
+        ]
+
+        for label, cmd_key, fg in inputs:
+            btn = tk.Label(inner, text=label, bg=BORDER, fg=fg,
+                           font=(_FONT, _FS, "bold"), cursor="hand2",
+                           padx=10, pady=6, anchor="w")
+            btn.pack(fill="x", pady=2)
+            def _send(k=cmd_key, n=label, b=btn):
+                orig = b.cget("bg"); b.config(bg=DIM)
+                self.after(120, lambda: b.config(bg=orig) if b.winfo_exists() else None)
+                threading.Thread(target=lambda: ecp_keypress(self._ip, k),
+                                 daemon=True).start()
+                self._set_status(f"Switched to {n}", ACCENT2)
+                dlg.destroy()
+            btn.bind("<Button-1>", lambda e, fn=_send: fn())
+            btn.bind("<Enter>",    lambda e, b=btn, f=fg: b.config(bg=DIM))
+            btn.bind("<Leave>",    lambda e, b=btn, f=fg: b.config(bg=BORDER))
+
+        dlg.update_idletasks()
+        cx = self.winfo_rootx() + self.winfo_width()  // 2 - dlg.winfo_reqwidth()  // 2
+        cy = self.winfo_rooty() + self.winfo_height() // 2 - dlg.winfo_reqheight() // 2
+        dlg.geometry(f"+{cx}+{cy}"); dlg.deiconify()
+
+    # ── Power button — WOL + ECP ──────────────────────────────────────────────
+
+    def _power_press(self):
+        if self._mac:
+            def _wol():
+                try: send_wol(self._mac)
+                except Exception: pass
+            threading.Thread(target=_wol, daemon=True).start()
+        ecp_keypress(self._ip, "Power")
+
     # ── Wake on LAN ───────────────────────────────────────────────────────────
 
     def _open_wol(self):
+        if self._popup_wol and self._popup_wol.winfo_exists():
+            self._popup_wol.lift(); self._popup_wol.focus_force(); return
         dlg = tk.Toplevel(self); dlg.configure(bg=BG)
+        self._popup_wol = dlg
         dlg.resizable(False, False); dlg.overrideredirect(True)
         dlg.withdraw()
         dlg.wm_attributes("-topmost", True)
@@ -1775,6 +2185,137 @@ class RokuRemote(tk.Tk):
         cx = self.winfo_rootx() + self.winfo_width()  // 2 - dlg.winfo_reqwidth()  // 2
         cy = self.winfo_rooty() + self.winfo_height() // 2 - dlg.winfo_reqheight() // 2
         dlg.geometry(f"+{cx}+{cy}"); dlg.deiconify()
+
+    # ── Settings popup ────────────────────────────────────────────────────────
+
+    def _open_settings(self):
+        if self._popup_settings and self._popup_settings.winfo_exists():
+            self._popup_settings.lift(); self._popup_settings.focus_force(); return
+        pop = tk.Toplevel(self)
+        self._popup_settings = pop
+        pop.configure(bg=BG); pop.resizable(False, False)
+        pop.overrideredirect(True)
+        pop.wm_attributes("-topmost", True)
+        pop.transient(self)
+        pop.withdraw()
+        _register_popup(pop)
+        _make_titlebar(pop, PANEL, BORDER, SUBTEXT, RED, on_close=pop.destroy,
+                       title_text="  ⚙  Settings", title_fg=TEXT, title_bg=PANEL,
+                       draggable=False)
+        body = tk.Frame(pop, bg=BG, padx=16, pady=12)
+        body.pack(fill="both")
+
+        # ── Button Size ───────────────────────────────────────────────────────
+        tk.Label(body, text="Button Size", bg=BG, fg=SUBTEXT,
+                 font=(_FONT, _FS - 1, "bold"), anchor="w").pack(fill="x", pady=(0, 4))
+        bs_row = tk.Frame(body, bg=BG); bs_row.pack(fill="x", pady=(0, 8))
+        bs_lbl = tk.Label(bs_row, text=str(self._btn_fs), bg=BORDER, fg=TEXT,
+                          font=(_FONT, _FS, "bold"), width=3, anchor="center", padx=4, pady=3)
+        bs_lbl.pack(side="left")
+        for symbol, delta in (("−", -1), ("+", +1)):
+            def _bs_step(d=delta, lbl=bs_lbl):
+                self._set_btn_size(d)
+                lbl.config(text=str(self._btn_fs))
+            btn = tk.Label(bs_row, text=f" {symbol} ", bg=BORDER, fg=ACCENT2,
+                           font=(_FONT, _FS, "bold"), cursor="hand2", padx=6, pady=3)
+            btn.pack(side="left", padx=(4, 0))
+            btn.bind("<Button-1>", lambda e, fn=_bs_step: fn())
+            btn.bind("<Enter>",    lambda e, b=btn: b.config(fg=GREEN))
+            btn.bind("<Leave>",    lambda e, b=btn: b.config(fg=ACCENT2))
+        tk.Label(bs_row, text="(live)", bg=BG, fg=DIM,
+                 font=(_FONT, _FS - 2)).pack(side="left", padx=(8, 0))
+
+        # ── Always on Top ─────────────────────────────────────────────────────
+        tk.Frame(body, bg=BORDER, height=1).pack(fill="x", pady=(0, 8))
+        aot_row = tk.Frame(body, bg=BG); aot_row.pack(fill="x")
+        tk.Label(aot_row, text="📌  Always on Top", bg=BG, fg=SUBTEXT,
+                 font=(_FONT, _FS - 1, "bold"), anchor="w").pack(side="left")
+        aot_var = tk.BooleanVar(value=self._always_on_top)
+        def _toggle_aot():
+            self._apply_always_on_top(aot_var.get())
+        aot_chk = tk.Checkbutton(aot_row, variable=aot_var, command=_toggle_aot,
+                                  bg=BG, fg=ACCENT, selectcolor=BORDER,
+                                  activebackground=BG, activeforeground=GREEN,
+                                  relief="flat", cursor="hand2")
+        aot_chk.pack(side="right")
+
+        # ── Close to Tray ─────────────────────────────────────────────────────
+        tk.Frame(body, bg=BORDER, height=1).pack(fill="x", pady=(8, 4))
+        ctt_row = tk.Frame(body, bg=BG); ctt_row.pack(fill="x")
+        tk.Label(ctt_row, text="🗕  Close to Tray", bg=BG, fg=SUBTEXT,
+                 font=(_FONT, _FS - 1, "bold"), anchor="w").pack(side="left")
+        ctt_var = tk.BooleanVar(value=self._close_to_tray)
+        def _toggle_ctt():
+            self._close_to_tray = ctt_var.get()
+            _write_cfg({"close_to_tray": self._close_to_tray})
+            if self._close_to_tray:
+                self._setup_tray()
+            else:
+                self._remove_tray()
+        ctt_chk = tk.Checkbutton(ctt_row, variable=ctt_var, command=_toggle_ctt,
+                                  bg=BG, fg=ACCENT, selectcolor=BORDER,
+                                  activebackground=BG, activeforeground=GREEN,
+                                  relief="flat", cursor="hand2")
+        ctt_chk.pack(side="right")
+
+        # ── Start with Windows ────────────────────────────────────────────────
+        tk.Frame(body, bg=BORDER, height=1).pack(fill="x", pady=(8, 4))
+        sww_row = tk.Frame(body, bg=BG); sww_row.pack(fill="x")
+        tk.Label(sww_row, text="🚀  Start with Windows", bg=BG, fg=SUBTEXT,
+                 font=(_FONT, _FS - 1, "bold"), anchor="w").pack(side="left")
+        sww_var = tk.BooleanVar(value=_startup_enabled())
+        def _toggle_sww():
+            _set_startup(sww_var.get())
+        sww_chk = tk.Checkbutton(sww_row, variable=sww_var, command=_toggle_sww,
+                                  bg=BG, fg=ACCENT, selectcolor=BORDER,
+                                  activebackground=BG, activeforeground=GREEN,
+                                  relief="flat", cursor="hand2")
+        sww_chk.pack(side="right")
+
+        # ── Device controls ───────────────────────────────────────────────────
+        tk.Frame(body, bg=BORDER, height=1).pack(fill="x", pady=(8, 4))
+        tk.Label(body, text="Device", bg=BG, fg=SUBTEXT,
+                 font=(_FONT, _FS - 1, "bold"), anchor="w").pack(fill="x", pady=(0, 4))
+
+        def _settings_btn(text, fg, cmd):
+            b = tk.Label(body, text=text, bg=BORDER, fg=fg,
+                         font=(_FONT, _FS - 1, "bold"), cursor="hand2",
+                         anchor="w", padx=8, pady=6)
+            b.pack(fill="x", pady=(0, 3))
+            b.bind("<Button-1>", lambda e: (pop.destroy(), cmd()))
+            b.bind("<Enter>",    lambda e: b.config(fg=GREEN))
+            b.bind("<Leave>",    lambda e: b.config(fg=fg))
+
+        _settings_btn("📺  Switch Device…",  ACCENT,  self._open_device_switcher)
+        _settings_btn("⚡  Wake on LAN…",    YELLOW,  self._open_wol)
+
+        # ── Keybinds button ───────────────────────────────────────────────────
+        tk.Frame(body, bg=BORDER, height=1).pack(fill="x", pady=(8, 4))
+        kb_btn = tk.Label(body, text="⌨  Edit Key Bindings…",
+                          bg=BORDER, fg=ACCENT, font=(_FONT, _FS - 1, "bold"),
+                          cursor="hand2", anchor="w", padx=8, pady=6)
+        kb_btn.pack(fill="x")
+        kb_btn.bind("<Button-1>", lambda e: (pop.destroy(), self._open_keybinds()))
+        kb_btn.bind("<Enter>",    lambda e: kb_btn.config(fg=GREEN))
+        kb_btn.bind("<Leave>",    lambda e: kb_btn.config(fg=ACCENT))
+
+        pop.update_idletasks()
+        cx = self.winfo_rootx() + self.winfo_width()  // 2 - pop.winfo_reqwidth()  // 2
+        cy = self.winfo_rooty() + self.winfo_height() // 2 - pop.winfo_reqheight() // 2
+        pop.geometry(f"+{cx}+{cy}"); pop.deiconify()
+
+    # ── Button size ───────────────────────────────────────────────────────────
+
+    def _set_btn_size(self, delta):
+        self._btn_fs = max(_FS, min(_FS + 8, self._btn_fs + delta))
+        for b in self._all_gbtn:
+            try:
+                if b.winfo_exists():
+                    style = "bold" if getattr(b, "_gbtn_bold", False) else "normal"
+                    b.config(font=(_FONT, self._btn_fs, style))
+            except Exception:
+                pass
+        _write_cfg({"btn_fs": self._btn_fs})
 
     # ── Theme popup — PyDisplay style ────────────────────────────────────────
 
@@ -1963,31 +2504,6 @@ class RokuRemote(tk.Tk):
             btn.bind("<Button-1>",  lambda e, d=delta: _step(d))
             btn.bind("<Enter>",     lambda e, b=btn: b.config(fg=GREEN))
             btn.bind("<Leave>",     lambda e, b=btn: b.config(fg=ACCENT))
-
-        # ── Keybinds button ──────────────────────────────────────────────────
-        tk.Frame(body, bg=BORDER, height=1).pack(fill="x", pady=(8, 4))
-        # Always-on-top toggle
-        tk.Frame(body, bg=BORDER, height=1).pack(fill="x", pady=(8, 4))
-        aot_row = tk.Frame(body, bg=BG)
-        aot_row.pack(fill="x", pady=(0, 4))
-        tk.Label(aot_row, text="📌  Always on Top", bg=BG, fg=SUBTEXT,
-                 font=(_FONT, _FS - 1, "bold"), anchor="w").pack(side="left")
-        aot_var = tk.BooleanVar(value=self._always_on_top)
-        def _toggle_aot():
-            self._apply_always_on_top(aot_var.get())
-        aot_chk = tk.Checkbutton(aot_row, variable=aot_var, command=_toggle_aot,
-                                  bg=BG, fg=ACCENT, selectcolor=BORDER,
-                                  activebackground=BG, activeforeground=GREEN,
-                                  relief="flat", cursor="hand2")
-        aot_chk.pack(side="right")
-
-        kb_btn = tk.Label(body, text="⌨  Edit Key Bindings…",
-                          bg=BORDER, fg=ACCENT, font=(_FONT, _FS - 1, "bold"),
-                          cursor="hand2", anchor="w", padx=8, pady=6)
-        kb_btn.pack(fill="x")
-        kb_btn.bind("<Button-1>", lambda e: (pop.destroy(), self._open_keybinds()))
-        kb_btn.bind("<Enter>",    lambda e: kb_btn.config(fg=GREEN))
-        kb_btn.bind("<Leave>",    lambda e: kb_btn.config(fg=ACCENT))
 
         _register_popup(pop)
         pop.update_idletasks()
@@ -2269,14 +2785,13 @@ class RokuRemote(tk.Tk):
                         threading.Thread(target=lambda: ecp_post(self._ip, f"/launch/{aid}"), daemon=True).start()
                         self._set_status(f"Launching {n}…", GREEN); dlg.destroy()
                     for w in [row, nl, al]:
-                        w.bind("<Button-1>", lambda e, fn=_launch: fn())
-                        w.bind("<Enter>",    lambda e, r=row: r.config(bg=DIM))
-                        w.bind("<Leave>",    lambda e, r=row: r.config(bg=BORDER))
+                        w.bind("<Button-1>",   lambda e, fn=_launch: fn())
+                        w.bind("<Enter>",      lambda e, r=row: r.config(bg=DIM))
+                        w.bind("<Leave>",      lambda e, r=row: r.config(bg=BORDER))
+                        w.bind("<MouseWheel>", _scroll)
+                for w in [c, fr]:
+                    w.bind("<MouseWheel>", _scroll)
                 fr.update_idletasks(); c.configure(scrollregion=c.bbox("all"))
-
-            # Use bind_all on the dialog so scroll works over ANY child widget
-            dlg.bind_all("<MouseWheel>", _scroll)
-            dlg.bind("<Destroy>", lambda e: dlg.unbind_all("<MouseWheel>") if e.widget is dlg else None, add="+")
 
             # Now show the popup — fully populated, no flicker
             dlg.update_idletasks()
@@ -2293,7 +2808,10 @@ class RokuRemote(tk.Tk):
     def _open_keyboard(self):
         if not self._ip:
             self._set_status("No Roku connected — click ⌕ SCAN", RED); return
+        if self._popup_keyboard and self._popup_keyboard.winfo_exists():
+            self._popup_keyboard.lift(); self._popup_keyboard.focus_force(); return
         dlg = tk.Toplevel(self); dlg.configure(bg=BG)
+        self._popup_keyboard = dlg
         dlg.resizable(False, False); dlg.overrideredirect(True)
         dlg.withdraw()
         dlg.wm_attributes("-topmost", True)
@@ -2334,138 +2852,6 @@ class RokuRemote(tk.Tk):
         dlg.geometry(f"+{cx}+{cy}"); dlg.deiconify()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Portable mode prompt  — shown only on first launch (no mode chosen yet)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def _ask_portable_mode():
-    """
-    Show a PyDisplay-styled popup asking whether to run in portable or standard
-    mode.  Saves the answer into config.json so it is never asked again.
-    Returns the chosen mode string ('portable' or 'standard'), or None if the
-    user closed the window without choosing.
-    """
-    result = {"mode": None}
-
-    root = tk.Tk()
-    root.title("PyRokuMe — First Launch")
-    root.configure(bg=BG)
-    root.resizable(False, False)
-    root.wm_attributes("-topmost", True)
-    root.overrideredirect(True)
-
-    _make_titlebar(root, PANEL, BORDER, SUBTEXT, RED,
-                   on_close=root.destroy,
-                   title_text="PyRokuMe  ·  first launch",
-                   title_fg=TEXT, title_bg=PANEL)
-
-    # ── Header ────────────────────────────────────────────────────────────────
-    hdr = tk.Frame(root, bg=BG, padx=16, pady=10)
-    hdr.pack(fill="x")
-    tk.Label(hdr, text="PyRokuMe", bg=BG, fg=ACCENT,
-             font=(_FONT, _FS, "bold")).pack(side="left")
-    tk.Label(hdr, text=f"  v{_APP_VERSION}  ·  choose storage mode",
-             bg=BG, fg=SUBTEXT, font=(_FONT, _FS - 1)).pack(side="left")
-    tk.Frame(root, bg=BORDER, height=1).pack(fill="x", padx=12)
-
-    # ── Body ──────────────────────────────────────────────────────────────────
-    body = tk.Frame(root, bg=BG, padx=16, pady=12)
-    body.pack(fill="x")
-
-    tk.Label(body,
-             text="Choose a storage mode:",
-             bg=BG, fg=TEXT, font=(_FONT, _FS, "bold"),
-             anchor="w", justify="left").pack(fill="x", pady=(0, 8))
-
-    # ── Option cards ──────────────────────────────────────────────────────────
-    def _card(parent, icon, title, bullets, accent_col):
-        f = tk.Frame(parent, bg=PANEL, padx=12, pady=8, cursor="hand2")
-        f.pack(fill="x", pady=(0, 5))
-        tk.Label(f, text=icon + "  " + title, bg=PANEL, fg=accent_col,
-                 font=(_FONT, _FS, "bold"), anchor="w").pack(fill="x")
-        for line in bullets:
-            tk.Label(f, text="  · " + line, bg=PANEL, fg=SUBTEXT,
-                     font=(_FONT, _FS - 1), anchor="w").pack(fill="x")
-        return f
-
-    portable_card = _card(body, "💾", "Portable", [
-        "Creates a PyRokuMe folder — moves the script inside automatically",
-        "Config & logs live alongside the script — ideal for USB drives",
-    ], ACCENT)
-
-    standard_card = _card(body, "🖥", "Standard", [
-        "Config stored in %APPDATA%\\PyRokuMe",
-        "Works from anywhere — no folder setup needed",
-    ], ACCENT2)
-
-    # Hover highlight
-    def _hover(card, on):
-        col = DIM if on else PANEL
-        card.config(bg=col)
-        for w in card.winfo_children():
-            try: w.config(bg=col)
-            except Exception: pass
-
-    def _bind_card(card):
-        card.bind("<Enter>", lambda e, c=card: _hover(c, True))
-        card.bind("<Leave>", lambda e, c=card: _hover(c, False))
-        for child in card.winfo_children():
-            child.bind("<Enter>", lambda e, c=card: _hover(c, True))
-            child.bind("<Leave>", lambda e, c=card: _hover(c, False))
-
-    _bind_card(portable_card)
-    _bind_card(standard_card)
-
-    tk.Frame(root, bg=BORDER, height=1).pack(fill="x", padx=12)
-
-    # ── Info note ─────────────────────────────────────────────────────────────
-    note = tk.Label(root,
-        text="↩  Portable mode will relaunch automatically from its new location",
-        bg=BG, fg=DIM, font=(_FONT, _FS - 1),
-        anchor="w", padx=16, pady=5)
-    note.pack(fill="x")
-
-    tk.Frame(root, bg=BORDER, height=1).pack(fill="x", padx=12)
-
-    # ── Buttons ───────────────────────────────────────────────────────────────
-    bot = tk.Frame(root, bg=BG, pady=8, padx=16)
-    bot.pack(fill="x")
-
-    def _choose(mode):
-        root.destroy()
-        if mode == "portable":
-            _setup_portable()
-        else:
-            _save_mode(mode)
-        result["mode"] = mode
-
-    def _mk_btn(text, fg, cmd):
-        b = tk.Label(bot, text=text, bg=BORDER, fg=fg,
-                     font=(_FONT, _FS, "bold"), cursor="hand2", padx=12, pady=5)
-        b.pack(side="right", padx=(8, 0))
-        b.bind("<Button-1>", lambda e: cmd())
-        b.bind("<Enter>",    lambda e, w=b: w.config(fg=GREEN))
-        b.bind("<Leave>",    lambda e, w=b, c=fg: w.config(fg=c))
-        return b
-
-    _mk_btn("💾  Portable",  ACCENT,  lambda: _choose("portable"))
-    _mk_btn("🖥  Standard",  ACCENT2, lambda: _choose("standard"))
-
-    # Card clicks also choose — rebind after _bind_card so clicks work on labels too
-    def _bind_click(card, mode):
-        card.bind("<Button-1>", lambda e: _choose(mode))
-        for child in card.winfo_children():
-            child.bind("<Button-1>", lambda e, m=mode: _choose(m))
-
-    _bind_click(portable_card, "portable")
-    _bind_click(standard_card, "standard")
-
-    root.update_idletasks()
-    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    root.geometry(f"+{(sw - root.winfo_reqwidth()) // 2}+{(sh - root.winfo_reqheight()) // 2}")
-    root.mainloop()
-
-    return result["mode"]
 
 
 
@@ -2505,6 +2891,29 @@ def _clear_lock_pid():
     except Exception: pass
 
 
+def _show_signal_path():
+    # Both instances resolve the same _APP_DIR, so this path matches across them.
+    return _LOCK_PATH + ".show"
+
+
+def _request_show():
+    """Ask the already-running instance to surface itself.
+    It restores through its own Tk loop, so we never poke its windows from
+    another process (which spawned a phantom white box + taskbar button)."""
+    try:
+        os.makedirs(_APP_DIR, exist_ok=True)
+        with open(_show_signal_path(), "w") as f:
+            f.write(str(int(time.time())))
+        return True
+    except Exception:
+        return False
+
+
+def _clear_show_signal():
+    try: os.remove(_show_signal_path())
+    except Exception: pass
+
+
 def _force_kill_pid(pid):
     if not pid: return
     if _WIN32 and _kernel32:
@@ -2520,6 +2929,53 @@ def _force_kill_pid(pid):
             import signal; os.kill(pid, signal.SIGKILL)
         except Exception: pass
     time.sleep(0.4)
+
+
+def _bring_pid_to_front(pid):
+    """Show and focus every top-level window owned by pid.
+    If the window's centre is off all screens, move it to the primary screen centre."""
+    if not (_WIN32 and _user32): return False
+
+    SW_RESTORE   = 9
+    SW_SHOW      = 5
+    SWP_NOSIZE   = 0x0001
+    SWP_NOZORDER = 0x0004
+
+    class _RECT(ctypes.Structure):
+        _fields_ = [("left",  ctypes.c_long), ("top",    ctypes.c_long),
+                    ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_ulong, ctypes.c_long)
+    hits = []
+    def _cb(hwnd, _):
+        buf = ctypes.c_ulong(0)
+        _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(buf))
+        if buf.value == pid:
+            hits.append(hwnd)
+        return True
+    _user32.EnumWindows(WNDENUMPROC(_cb), 0)
+
+    sw = _user32.GetSystemMetrics(0)   # SM_CXSCREEN
+    sh = _user32.GetSystemMetrics(1)   # SM_CYSCREEN
+
+    found = False
+    for hwnd in hits:
+        _user32.ShowWindow(hwnd, SW_RESTORE)
+        _user32.ShowWindow(hwnd, SW_SHOW)
+        rect = _RECT()
+        _user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        ww = rect.right  - rect.left
+        wh = rect.bottom - rect.top
+        cx = rect.left + ww // 2
+        cy = rect.top  + wh // 2
+        # Move to primary screen centre if window is entirely off-screen
+        if not (0 <= cx < sw and 0 <= cy < sh):
+            nx = max(0, (sw - ww) // 2)
+            ny = max(0, (sh - wh) // 2)
+            _user32.SetWindowPos(hwnd, 0, nx, ny, 0, 0, SWP_NOSIZE | SWP_NOZORDER)
+        _user32.SetForegroundWindow(hwnd)
+        found = True
+    return found
 
 
 def _single_instance_check():
@@ -2554,11 +3010,15 @@ def _single_instance_check():
     tk.Label(body, text="⚠  PyRokuMe is already open",
              bg=BG, fg=YELLOW, font=(_FONT, _FS, "bold"), anchor="w").pack(fill="x")
     tk.Frame(body, bg=BORDER, height=1).pack(fill="x", pady=(8, 6))
-    tk.Label(body, text="Would you like to close the existing\ninstance and launch a new one?",
+    tk.Label(body, text="The existing window may be hidden.\nBring it to the front, or close it\nand launch a fresh copy.",
              bg=BG, fg=TEXT, font=(_FONT, _FS), justify="left").pack(fill="x", pady=(0, 12))
 
     btn_row = tk.Frame(body, bg=BG)
     btn_row.pack(fill="x")
+
+    def _do_show():
+        action["v"] = "show"
+        root.quit()
 
     def _do_replace():
         action["v"] = "replace"
@@ -2568,12 +3028,20 @@ def _single_instance_check():
         action["v"] = "cancel"
         root.quit()
 
-    close_btn = tk.Label(btn_row, text="Close old & launch",
+    show_btn = tk.Label(btn_row, text="Show window",
+                        bg=GREEN, fg=BG,
+                        font=(_FONT, _FS, "bold"), cursor="hand2", padx=12, pady=5)
+    show_btn.pack(side="left")
+    show_btn.bind("<Button-1>", lambda e: _do_show())
+    show_btn.bind("<Enter>",    lambda e: show_btn.config(bg=ACCENT))
+    show_btn.bind("<Leave>",    lambda e: show_btn.config(bg=GREEN))
+
+    close_btn = tk.Label(btn_row, text="Close & relaunch",
                          bg=ROKU_PURPLE, fg=TEXT,
                          font=(_FONT, _FS, "bold"), cursor="hand2", padx=12, pady=5)
-    close_btn.pack(side="left")
+    close_btn.pack(side="left", padx=(8, 0))
     close_btn.bind("<Button-1>", lambda e: _do_replace())
-    close_btn.bind("<Enter>",    lambda e: close_btn.config(bg=GREEN, fg=BG))
+    close_btn.bind("<Enter>",    lambda e: close_btn.config(bg=RED, fg=TEXT))
     close_btn.bind("<Leave>",    lambda e: close_btn.config(bg=ROKU_PURPLE, fg=TEXT))
 
     cancel_btn = tk.Label(btn_row, text="Cancel",
@@ -2592,6 +3060,10 @@ def _single_instance_check():
     root.mainloop()
     root.destroy()
 
+    if action["v"] == "show":
+        _request_show()
+        return False
+
     if action["v"] == "replace":
         _force_kill_pid(existing_pid)
         _write_lock_pid(os.getpid())
@@ -2599,19 +3071,52 @@ def _single_instance_check():
 
     return False
 
+def _ask_mode():
+    """First-launch popup: choose portable (next to exe) or standard (AppData)."""
+    result = {"mode": None}
+    root = tk.Tk()
+    root.configure(bg=BG); root.resizable(False, False)
+    root.wm_attributes("-topmost", True); root.overrideredirect(True)
+    _make_titlebar(root, PANEL, BORDER, SUBTEXT, RED, on_close=root.destroy,
+                   title_text="  PyRokuMe  ·  first launch",
+                   title_fg=TEXT, title_bg=PANEL)
+    body = tk.Frame(root, bg=BG, padx=16, pady=12); body.pack(fill="x")
+    tk.Label(body, text="Where should settings be saved?", bg=BG, fg=TEXT,
+             font=(_FONT, _FS, "bold"), anchor="w").pack(fill="x", pady=(0, 10))
+
+    def _card(icon, title, sub, mode):
+        f = tk.Frame(body, bg=PANEL, padx=12, pady=8, cursor="hand2")
+        f.pack(fill="x", pady=(0, 5))
+        tk.Label(f, text=f"{icon}  {title}", bg=PANEL, fg=ACCENT,
+                 font=(_FONT, _FS, "bold"), anchor="w").pack(fill="x")
+        tk.Label(f, text=f"  {sub}", bg=PANEL, fg=SUBTEXT,
+                 font=(_FONT, _FS - 1), anchor="w").pack(fill="x")
+        def _pick(m=mode):
+            result["mode"] = m; root.destroy()
+        for w in [f] + list(f.winfo_children()):
+            w.bind("<Button-1>", lambda e, fn=_pick: fn())
+            w.bind("<Enter>",    lambda e, fr=f: [c.config(bg=DIM) for c in [fr]+list(fr.winfo_children())])
+            w.bind("<Leave>",    lambda e, fr=f: [c.config(bg=PANEL) for c in [fr]+list(fr.winfo_children())])
+        return f
+
+    _card("💾", "Portable", "Saves PyRokuMe.json next to the exe — move it anywhere", "portable")
+    _card("🖥", "Standard", "Saves to %APPDATA%\\PyRokuMe\\PyRokuMe.json", "standard")
+
+    root.update_idletasks()
+    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+    root.geometry(f"+{(sw-root.winfo_reqwidth())//2}+{(sh-root.winfo_reqheight())//2}")
+    root.mainloop()
+    return result["mode"]
+
+
 if __name__ == "__main__":
-    # ── First-launch portable mode prompt ─────────────────────────────────────
-    # Shown once when no mode has been saved yet. Choice is stored inside
-    # config.json — no extra files created.
     if _load_mode() is None:
-        chosen = _ask_portable_mode()
-        # Portable: folder created, script moved, Explorer highlighted — exit.
-        # None: user closed without choosing — abort.
-        if chosen in (None, "portable"):
+        chosen = _ask_mode()
+        if not chosen:
             sys.exit(0)
-        # Standard chosen — re-resolve data dir now that config.json is written
-        _APP_DIR  = _resolve_app_dir()
-        _CFG_PATH = os.path.join(_APP_DIR, "config.json")
+        _save_mode(chosen)
+        _APP_DIR   = _resolve_app_dir(chosen)
+        _CFG_PATH  = os.path.join(_APP_DIR, _CFG_NAME)
         _LOCK_PATH = os.path.join(_APP_DIR, "PyRokuMe.pid")
 
     if not _single_instance_check():
