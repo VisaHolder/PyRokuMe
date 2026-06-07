@@ -30,7 +30,7 @@ import subprocess
 import ctypes
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-_APP_VERSION = "1.0.1"
+_APP_VERSION = "1.0.2"
 _FONT        = "Courier New"
 _FS          = 9
 _ECP_PORT    = 8060
@@ -569,8 +569,10 @@ def ecp_device_info(ip):
 def ecp_apps(ip):
     xml = ecp_get(ip, "/query/apps")
     if not xml: return []
-    import re
-    return re.findall(r'<app id="(\d+)"[^>]*>(.*?)</app>', xml)
+    import re, html
+    apps = re.findall(r'<app id="(\d+)"[^>]*>(.*?)</app>', xml, re.DOTALL)
+    # Unescape XML entities so names like "Tom &amp; Jerry" render correctly.
+    return [(aid, html.unescape(name).strip()) for aid, name in apps]
 
 def ecp_media_player(ip):
     """Query /query/media-player. Returns {"state":str, "app":str} or None."""
@@ -583,15 +585,51 @@ def ecp_media_player(ip):
     return {"state": state.group(1), "app": app.group(1) if app else ""}
 
 
+def _local_ipv4():
+    """Best-effort local LAN IPv4 — the interface that routes outbound.
+    No packets are actually sent (UDP connect just selects the egress NIC)."""
+    s = None
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return ""
+    finally:
+        if s is not None:
+            try: s.close()
+            except Exception: pass
+
+
 def send_wol(mac: str):
-    """Send a Wake-on-LAN magic packet to the given MAC address."""
+    """Send a Wake-on-LAN magic packet for `mac`.
+
+    Sends to BOTH the limited broadcast (255.255.255.255) and the /24
+    directed broadcast of the local interface, on the two common WoL ports
+    (9 and 7). The directed broadcast is what actually reaches a sleeping
+    device on multi-NIC hosts (VPN/Hyper-V/WSL), where the limited broadcast
+    is frequently dropped — the old code sent only to <broadcast>:9 and could
+    silently no-op."""
     mac = mac.replace(":", "").replace("-", "").replace(".", "").upper()
     if len(mac) != 12:
         raise ValueError(f"Invalid MAC address: {mac!r}")
     payload = bytes.fromhex("FF" * 6 + mac * 16)
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        s.sendto(payload, ("<broadcast>", 9))
+    targets = ["255.255.255.255"]
+    lan = _local_ipv4()
+    if lan and lan.count(".") == 3:
+        targets.append(".".join(lan.split(".")[:3] + ["255"]))
+    sent = False
+    for addr in targets:
+        for port in (9, 7):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                    s.sendto(payload, (addr, port))
+                    sent = True
+            except Exception:
+                pass
+    if not sent:
+        raise OSError("Wake-on-LAN: no broadcast could be sent")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -612,6 +650,15 @@ def ssdp_discover(timeout=4.0):
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        # Pin the multicast egress to the LAN interface so the M-SEARCH doesn't
+        # leave a VPN/Hyper-V/WSL adapter and find nothing on multi-NIC hosts.
+        _lan = _local_ipv4()
+        if _lan:
+            try:
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF,
+                                socket.inet_aton(_lan))
+            except Exception:
+                pass
         sock.settimeout(timeout)
         sock.sendto(_SSDP_MSG.encode(), (_SSDP_ADDR, _SSDP_PORT))
         deadline = time.time() + timeout
@@ -625,7 +672,9 @@ def ssdp_discover(timeout=4.0):
             except socket.timeout:
                 break
             except Exception:
-                break
+                # A single malformed datagram must not abort the whole window —
+                # keep listening until the deadline.
+                continue
     except Exception:
         pass
     finally:
@@ -665,10 +714,16 @@ def discover_all(timeout=5.0):
     ssdp_t = threading.Thread(target=_ssdp, daemon=True)
     ssdp_t.start()
 
-    # IP range probe — 1 to 99 on subnet
+    # IP range probe — derive the local /24 so it works on whatever subnet the
+    # user is actually on (192.168.0/1.x, 10.x, …), not just the hardcoded one.
+    lan = _local_ipv4()
+    if lan and lan.count(".") == 3:
+        subnet = ".".join(lan.split(".")[:3])
+    else:
+        subnet = _SCAN_SUBNET
     threads = []
-    for last in range(1, 100):
-        ip = f"{_SCAN_SUBNET}.{last}"
+    for last in range(1, 255):
+        ip = f"{subnet}.{last}"
         t = threading.Thread(target=_probe_ecp, args=(ip, found, lock), daemon=True)
         t.start()
         threads.append(t)
@@ -687,7 +742,7 @@ def discover_all(timeout=5.0):
 
 def _read_cfg():
     try:
-        with open(_CFG_PATH) as f: return json.load(f)
+        with open(_CFG_PATH, encoding="utf-8") as f: return json.load(f)
     except Exception:
         return {}
 
@@ -697,7 +752,7 @@ def _write_cfg(data):
         ex = _read_cfg()
         ex.update(data)
         tmp = _CFG_PATH + ".tmp"
-        with open(tmp, "w") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(ex, f, indent=2)
         os.replace(tmp, _CFG_PATH)
     except Exception as e:
@@ -836,12 +891,17 @@ class RokuRemote(tk.Tk):
         self._build_ui()
         self._set_device_name("No device connected", SUBTEXT)
 
-        # Restore saved geometry — applied after window is ready
+        # Restore saved geometry — applied after window is ready.
+        # Guard each int() so a corrupt/hand-edited config (e.g. w="abc") can't
+        # crash startup here; this runs before _restore_geometry's try/except.
+        def _si(key, dflt):
+            try: return int(cfg.get(key, dflt))
+            except Exception: return dflt
         self._saved_geo = {
-            "w": int(cfg.get("w", 260)), "h": int(cfg.get("h", 500)),
-            "x": int(cfg.get("x", 100)), "y": int(cfg.get("y", 100)),
+            "w": _si("w", 260), "h": _si("h", 500),
+            "x": _si("x", 100), "y": _si("y", 100),
             "rel_x": cfg.get("rel_x"),   "rel_y": cfg.get("rel_y"),
-            "monitor": cfg.get("monitor", 0),
+            "monitor": _si("monitor", 0),
         }
         self.after(10, self._restore_geometry)
 
@@ -2387,10 +2447,10 @@ class RokuRemote(tk.Tk):
             w.destroy()
         self.configure(bg=BG)
         self._build_ui()
-        # Restore device label
+        # Restore device label (the device bar is a marquee canvas now —
+        # the old self._device_lbl no longer exists and raised AttributeError).
         if self._ip:
-            self._device_lbl.config(
-                text=f"{self._device_name}  [{self._ip}]", fg=GREEN)
+            self._set_device_name(f"📺  {self._device_name}", GREEN)
 
     def _open_theme(self):
         # Single-instance guard
@@ -2859,15 +2919,53 @@ class RokuRemote(tk.Tk):
 _LOCK_PATH = os.path.join(_APP_DIR, "PyRokuMe.pid")
 
 
+def _pid_image_name(pid):
+    """Lowercased basename of the image backing `pid` ('' if it can't be read).
+    Used to defend against PID reuse: Windows recycles PIDs, so a stale saved
+    PID may now belong to an unrelated process."""
+    if not (_WIN32 and _kernel32) or not pid:
+        return ""
+    try:
+        _kernel32.OpenProcess.restype = ctypes.c_void_p   # full 64-bit handle
+        QFP = _kernel32.QueryFullProcessImageNameW
+        QFP.argtypes = [ctypes.c_void_p, ctypes.c_ulong,
+                        ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_ulong)]
+        QFP.restype = ctypes.c_int
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        h = _kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not h:
+            return ""
+        try:
+            buf  = ctypes.create_unicode_buffer(32768)
+            size = ctypes.c_ulong(len(buf))
+            if QFP(h, 0, buf, ctypes.byref(size)):
+                return os.path.basename(buf.value).lower()
+            return ""
+        finally:
+            _kernel32.CloseHandle(h)
+    except Exception:
+        return ""
+
+
 def _pid_is_running(pid):
     if not pid: return False
     if _WIN32 and _kernel32:
         SYNCHRONIZE = 0x00100000
         h = _kernel32.OpenProcess(SYNCHRONIZE, False, pid)
-        if h:
-            _kernel32.CloseHandle(h)
-            return True
-        return False
+        if not h:
+            return False
+        _kernel32.CloseHandle(h)
+        # PID-reuse guard: only treat this PID as "our running instance" if its
+        # image matches this executable. Otherwise the saved PID was recycled
+        # by an unrelated process — claiming it would pop the "already running"
+        # dialog forever and, on "Close & relaunch", TerminateProcess an
+        # innocent program. (If the image can't be read, fall back to the old
+        # behavior and assume it's ours.)
+        mine   = os.path.basename(sys.executable).lower()
+        theirs = _pid_image_name(pid)
+        if mine and theirs and theirs != mine:
+            return False
+        return True
     else:
         try: os.kill(pid, 0); return True
         except OSError: return False
@@ -2917,6 +3015,12 @@ def _clear_show_signal():
 def _force_kill_pid(pid):
     if not pid: return
     if _WIN32 and _kernel32:
+        # Defense-in-depth against PID reuse: never terminate a PID whose image
+        # isn't ours, even if we somehow got here with a recycled PID.
+        mine   = os.path.basename(sys.executable).lower()
+        theirs = _pid_image_name(pid)
+        if mine and theirs and theirs != mine:
+            return
         try:
             h = _kernel32.OpenProcess(0x0001 | 0x00100000, False, pid)
             if h:

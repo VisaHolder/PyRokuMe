@@ -5,6 +5,20 @@ All notable changes to PyRokuMe are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-06-07
+
+### Fixed
+- **"Close & relaunch" on the already-running prompt could terminate an unrelated program.** The single-instance check trusted a saved PID, but Windows recycles PIDs — if a stale lock pointed at a PID since reused by another process, the prompt would appear every launch and "Close & relaunch" would `TerminateProcess` that innocent process. The check now verifies the target process's image matches PyRokuMe before claiming *or* killing it.
+- **Crash when changing the theme while connected to a device.** The theme rebuild referenced a `_device_lbl` widget that no longer exists (the device bar became a scrolling marquee), raising `AttributeError`. It now updates the marquee correctly.
+- **Wake-on-LAN silently did nothing on multi-NIC machines.** The magic packet went only to the limited broadcast (`255.255.255.255:9`), which routers and VPN/Hyper-V/WSL adapters frequently drop. It now also targets the interface's /24 directed broadcast on both common WoL ports (9 and 7).
+- **Device discovery failed on the most common home subnets.** SSDP M-SEARCH could leave the wrong network interface, and the IP-range scan was hardcoded to `192.168.2.x`. Discovery now pins the multicast to the LAN interface and derives the scan subnet from the local address (so `192.168.0/1.x`, `10.x`, etc. work).
+- **A corrupt or hand-edited config could crash startup** instead of falling back to defaults (an unguarded `int()` on saved geometry). Geometry parsing is now guarded.
+- **App names containing `&` (and other XML entities) showed as `&amp;`** in the launcher — entities are now unescaped, and the parser tolerates multi-line responses.
+- **Config is now read and written as UTF-8**, so device names with emoji/accents survive a save/reload.
+
+### Changed
+- **Version bumped to 1.0.2.**
+
 ## [1.0.1] - 2026-06-03
 
 ### Fixed
@@ -20,5 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release: single-file Roku remote with SSDP + IP-range auto-discovery, full button layout, remappable keyboard shortcuts, app launcher, input switcher, send-text, Wake-on-LAN, now-playing status, system tray, multi-device quick-switch, 6 themes, opacity, always-on-top, auto-reconnect, and portable/standard config modes.
 
-[1.0.1]: https://github.com/reaprrr/PyRokuMe/releases/tag/v1.0.1
-[1.0.0]: https://github.com/reaprrr/PyRokuMe/releases/tag/v1.0.0
+[1.0.2]: https://github.com/VisaHolder/PyRokuMe/releases/tag/v1.0.2
+[1.0.1]: https://github.com/VisaHolder/PyRokuMe/releases/tag/v1.0.1
+[1.0.0]: https://github.com/VisaHolder/PyRokuMe/releases/tag/v1.0.0
