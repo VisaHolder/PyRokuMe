@@ -4,9 +4,9 @@
 
 **A compact, keyboard-driven Roku remote for Windows — no browser, no Electron, just Python.**
 
-[![Version](https://img.shields.io/badge/version-1.0.1-00ffe5?style=flat-square)](https://github.com/reaprrr/PyRokuMe/releases)
+[![Version](https://img.shields.io/badge/version-1.0.2-00ffe5?style=flat-square)](https://github.com/VisaHolder/PyRokuMe/releases)
 [![Python](https://img.shields.io/badge/python-3.8%2B-6c2bd9?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/platform-Windows-6868a0?style=flat-square&logo=windows)](https://github.com/reaprrr/PyRokuMe)
+[![Platform](https://img.shields.io/badge/platform-Windows-6868a0?style=flat-square&logo=windows)](https://github.com/VisaHolder/PyRokuMe)
 [![License](https://img.shields.io/badge/license-MIT-39ff7f?style=flat-square)](LICENSE)
 
 <br/>
@@ -58,14 +58,14 @@ All other dependencies (`tkinter`, `socket`, `threading`, `ctypes`) are part of 
 
 ### Compiled EXE (recommended)
 
-Download `PyRokuMe.exe` from [Releases](https://github.com/reaprrr/PyRokuMe/releases) and run it. No Python required.
+Download `PyRokuMe.exe` from [Releases](https://github.com/VisaHolder/PyRokuMe/releases) and run it. No Python required.
 
 On first launch you'll be asked whether to run in **Portable** mode (config saved next to the exe) or **Standard** mode (config saved to `%APPDATA%\PyRokuMe\PyRokuMe.json`).
 
 ### From source
 
 ```bash
-git clone https://github.com/reaprrr/PyRokuMe.git
+git clone https://github.com/VisaHolder/PyRokuMe.git
 cd PyRokuMe
 pip install requests
 python PyRokuMe.pyw
@@ -156,5 +156,5 @@ MIT — see [LICENSE](LICENSE) for details.
 ---
 
 <div align="center">
-<sub>Built with Python + tkinter · Styled after <a href="https://github.com/reaprrr/PyDisplay">PyDisplay</a></sub>
+<sub>Built with Python + tkinter · Styled after <a href="https://github.com/VisaHolder/PyDisplay">PyDisplay</a></sub>
 </div>
